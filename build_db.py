@@ -43,6 +43,36 @@ NEEDED_TABLES = {
 }
  
  
+def sniff_affinity(values):
+    """Decide a column's SQLite type from its values.
+
+    Columns loaded as raw text compare badly (text '9' != integer 9), which
+    silently breaks JOINs. So we detect numeric columns and declare them
+    INTEGER/REAL, letting SQLite store them as real numbers.
+    """
+    saw_value = False
+    all_int = all_real = True
+    for v in values:
+        if v == "" or v is None:
+            continue
+        saw_value = True
+        try:
+            int(v)
+        except ValueError:
+            all_int = False
+        try:
+            float(v)
+        except ValueError:
+            all_real = False
+    if not saw_value:
+        return "TEXT"
+    if all_int:
+        return "INTEGER"
+    if all_real:
+        return "REAL"
+    return "TEXT"
+
+
 def load_csv(db, csv_path):
     table = csv_path.stem
     with open(csv_path, encoding="utf-8", newline="") as f:
@@ -51,14 +81,24 @@ def load_csv(db, csv_path):
             header = next(reader)
         except StopIteration:
             return  # empty file
-        cols = ",".join(f'"{c}"' for c in header)
-        placeholders = ",".join("?" * len(header))
-        db.execute(f'DROP TABLE IF EXISTS "{table}"')
-        db.execute(f'CREATE TABLE "{table}" ({cols})')
-        db.executemany(
-            f'INSERT INTO "{table}" VALUES ({placeholders})',
-            reader,
-        )
+        rows = list(reader)
+
+    # Empty CSV cells become real NULLs, not empty strings.
+    rows = [[(v if v != "" else None) for v in row] for row in rows]
+
+    # Pick a type per column so numbers store as numbers.
+    affinities = [
+        sniff_affinity([row[i] for row in rows]) for i in range(len(header))
+    ]
+    col_defs = ",".join(f'"{c}" {a}' for c, a in zip(header, affinities))
+
+    placeholders = ",".join("?" * len(header))
+    db.execute(f'DROP TABLE IF EXISTS "{table}"')
+    db.execute(f'CREATE TABLE "{table}" ({col_defs})')
+    db.executemany(
+        f'INSERT INTO "{table}" VALUES ({placeholders})',
+        rows,
+    )
  
  
 def main():

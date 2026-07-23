@@ -82,8 +82,8 @@ def get_learnset(con, pokemon_id, version_group, max_level=100):
         WHERE pm.pokemon_id = ?
           AND mm.identifier = 'level-up'
           AND vg.identifier = ?
-          AND CAST(pm.level AS INTEGER) <= ?
-        ORDER BY CAST(pm.level AS INTEGER), mn.name
+          AND pm.level <= ?
+        ORDER BY pm.level, mn.name
         """,
         (ENGLISH, pokemon_id, version_group, max_level),
     ).fetchall()
